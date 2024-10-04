@@ -68,7 +68,6 @@ class SSLListener {
         //decostructor of the listner;
         ~SSLListener() {
             close();
-            CleanSSL();
         }
 
        ////////////////////////////////////////////////////////////////////////////////////
@@ -83,7 +82,6 @@ class SSLListener {
         //      make the listner listen from a port and a address; addres is Any(0.0.0.0) by default
         //
         ///////////////////////////////////////////////////////////////////////////////////
-
         bool listen(unsigned short port, IpAddress address = IpAddress::Any);
 
 

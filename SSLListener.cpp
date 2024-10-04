@@ -45,11 +45,9 @@ namespace sf {
 
     ////////////////////////////////////////////////////////////////////////////////////
     //
-    //      Bind the listner to the address
+    //      Bind the listner to port and address
     //
     ///////////////////////////////////////////////////////////////////////////////////
-
-
     bool SSLListener::bind(unsigned short port, IpAddress address)
     {
         // Set up server address structure

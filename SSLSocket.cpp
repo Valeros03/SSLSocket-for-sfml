@@ -44,7 +44,7 @@ namespace sf {
             }
             else {
                 // Other SSL errors
-                return getError();
+                return getErrorStatus();
             }
         }
 	}
@@ -53,9 +53,28 @@ namespace sf {
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-    Socket::Status SSLSocket::getError() {
+#ifdef _WIN32
+    ////////////////////////////////////////////////////////////
+    Socket::Status SSLSocket::getErrorStatus()
+    {
+        // clang-format off
+        switch (WSAGetLastError())
+        {
+            case WSAEWOULDBLOCK:  return Socket::Status::NotReady;
+            case WSAEALREADY:     return Socket::Status::NotReady;
+            case WSAECONNABORTED: return Socket::Status::Disconnected;
+            case WSAECONNRESET:   return Socket::Status::Disconnected;
+            case WSAETIMEDOUT:    return Socket::Status::Disconnected;
+            case WSAENETRESET:    return Socket::Status::Disconnected;
+            case WSAENOTCONN:     return Socket::Status::Disconnected;
+            case WSAEISCONN:      return Socket::Status::Done; // when connecting a non-blocking socket
+            default:              return Socket::Status::Error;
+        }
+        // clang-format on
+    }
+    ////////////////////////////////////////////////////////////
+#else
+    Socket::Status SSLSocket::getErrorStatus() {
         if ((errno == EAGAIN) || (errno == EINPROGRESS))
             return Socket::Status::NotReady;
 
@@ -72,7 +91,7 @@ namespace sf {
         default:           return Socket::Status::Error;
         }
     }
-
+#endif
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -99,7 +118,7 @@ namespace sf {
             // Check for errors
             if (result < 0)
             {
-                const Socket::Status status = getError();
+                const Socket::Status status = getErrorStatus();
                 int ssl_error = SSL_get_error(ssl, sent);
 
                 if (ssl_error == SSL_ERROR_WANT_WRITE || ssl_error == SSL_ERROR_WANT_READ) {
@@ -142,11 +161,22 @@ namespace sf {
         create();
 
 
-        addr = sockaddr_in();
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-        addr.sin_addr.s_addr = htonl(address.toInteger());
+#ifdef _WIN32
+    addr = sockaddr_in();
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(address.toInteger());
+#else
+    memset(&addr, 0, sizeof(addr));   // Inizializza la struttura a zero
+    addr.sin_family = AF_INET;        // Famiglia di indirizzi IPv4
+    addr.sin_port = htons(port);      // Conversione in formato di rete della porta
 
+    // Converte l'indirizzo IP da stringa a binario e lo imposta nella struttura
+    if (inet_pton(AF_INET, address.c_str(), &addr.sin_addr) <= 0) {
+        // Gestisci l'errore in caso di fallimento della conversione dell'indirizzo
+        perror("inet_pton error");
+    }
+#endif
         if (::connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
 
             perror("Connection failed");
@@ -169,71 +199,44 @@ namespace sf {
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-    bool SSLSocket::connect(const IpAddress& ip, unsigned short port, int timeout_seconds) {
+Socket::Status TcpSocket::connect(IpAddress remoteAddress, unsigned short remotePort, Time timeout)
+{
+    // Disconnect the socket if it is already connected
+    disconnect();
 
-        disconnect();
-        create();
+    // Create the internal socket if it doesn't exist
+    create();
 
-
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-        inet_pton(AF_INET, ip.toString().c_str(), &addr.sin_addr);
-
-        // Set socket to non-blocking mode
-        if (!SetNonBlocking(true)) {
-            std::cerr << "Error setting socket to non-blocking mode" << std::endl;
-            return false;
-        }
-
-        if (::connect(sockfd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == -1) {
+    // Create the remote address
 #ifdef _WIN32
-            int error = WSAGetLastError();
-            if (error != WSAEWOULDBLOCK) {
-                std::cerr << "Error connecting to server" << std::endl;
-                return false;
-            }
+    addr = sockaddr_in();
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(address.toInteger());
 #else
-            if (errno != EINPROGRESS) {
-                std::cerr << "Error connecting to server" << std::endl;
-                return false;
-            }
+    memset(&addr, 0, sizeof(addr));   // Inizializza la struttura a zero
+    addr.sin_family = AF_INET;        // Famiglia di indirizzi IPv4
+    addr.sin_port = htons(port);      // Conversione in formato di rete della porta
+
+    // Converte l'indirizzo IP da stringa a binario e lo imposta nella struttura
+    if (inet_pton(AF_INET, address.c_str(), &addr.sin_addr) <= 0) {
+        // Gestisci l'errore in caso di fallimento della conversione dell'indirizzo
+        perror("inet_pton error");
+    }
 #endif
-        }
 
-        // Wait for connection to complete
-        fd_set writefds;
-        FD_ZERO(&writefds);
-        FD_SET(sockfd, &writefds);
-        struct timeval tv;
-        tv.tv_sec = timeout_seconds;
-        tv.tv_usec = 0;
+    if (timeout <= Time::Zero)
+    {
+        // ----- We're not using a timeout: just try to connect -----
 
-        int result = select(sockfd + 1, NULL, &writefds, NULL, &tv);
-        if (result == 0) {
-            std::cerr << "Connection timeout" << std::endl;
-            return false;
-        }
-        else if (result < 0) {
-            std::cerr << "Error in select" << std::endl;
-            return false;
-        }
+        // Connect the socket
+        if (::connect(sockfd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == -1)
+            return getErrorStatus();
 
-        // Check if socket is connected
-        int optval;
-        socklen_t optlen = sizeof(optval);
-        if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&optval), &optlen) == -1) {
-            std::cerr << "Error getting socket error status" << std::endl;
-            return false;
-        }
-        if (optval != 0) {
-            std::cerr << "Error connecting to server: " << std::endl;
-            return false;
-        }
-
-        // Set socket back to blocking mode
+         // Set socket back to blocking mode
         if (!SetNonBlocking(false)) {
             std::cerr << "Error setting socket to blocking mode" << std::endl;
-            return false;
+            return Socket::Status::Error;
         }
 
         // Create SSL connection
@@ -241,11 +244,94 @@ namespace sf {
         SSL_set_fd(ssl, sockfd);
         if (SSL_connect(ssl) != 1) {
             std::cerr << "Error establishing SSL connection" << std::endl;
-            return false;
+            return Socket::Status::Error;
         }
 
-        return true;
+        
+        return Socket::Status::Done;
+    }
 
+    // ----- We're using a timeout: we'll need a few tricks to make it work -----
+
+    // Save the previous blocking state
+    const bool blocking = isBlocking();
+
+    // Switch to non-blocking to enable our connection timeout
+    if (blocking)
+        setNonBlocking(true);
+
+    // Try to connect to the remote address
+    if (::connect(sockfd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) >= 0)
+    {
+        // We got instantly connected! (it may no happen a lot...)
+          // Create SSL connection
+        ssl = SSL_new(ctx);
+        SSL_set_fd(ssl, sockfd);
+        if (SSL_connect(ssl) != 1) {
+            std::cerr << "Error establishing SSL connection" << std::endl;
+            return Socket::Status::Error;
+        }
+
+        
+ 
+        setNonBlocking(blocking);
+        return Socket::Status::Done;
+    }
+
+    // Get the error status
+    Socket::Status status = getErrorStatus();
+
+    // If we were in non-blocking mode, return immediately
+    if (!blocking)
+        return status;
+
+    // Otherwise, wait until something happens to our socket (success, timeout or error)
+    if (status == Socket::Status::NotReady)
+    {
+        // Setup the selector
+        fd_set selector;
+        FD_ZERO(&selector);
+        FD_SET(sockfd, &selector);
+
+        // Setup the timeout
+        timeval time{};
+        time.tv_sec  = static_cast<long>(timeout.asMicroseconds() / 1000000);
+        time.tv_usec = static_cast<int>(timeout.asMicroseconds() % 1000000);
+
+        // Wait for something to write on our socket (which means that the connection request has returned)
+        if (::select(static_cast<int>(sockfd + 1), nullptr, &selector, nullptr, &time) > 0)
+        {
+            // At this point the connection may have been either accepted or refused.
+            // To know whether it's a success or a failure, we must check the address of the connected peer
+            if (getRemoteAddress().has_value())
+            {
+                // Connection accepted
+                   // Create SSL connection
+                 ssl = SSL_new(ctx);
+                 SSL_set_fd(ssl, sockfd);
+                 if (SSL_connect(ssl) != 1) {
+                     std::cerr << "Error establishing SSL connection" << std::endl;
+                     return Socket::Status::Error;
+                 }
+                status = Socket::Status::Done;
+            }
+            else
+            {
+                // Connection refused
+                status = Socket::Status::Error;
+            }
+        }
+        else
+        {
+            // Failed to connect before timeout is over
+            status = Socket::Status::NotReady;
+        }
+    }
+
+    // Switch back to blocking mode
+    setNonBlocking(false);
+
+    return status;
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
