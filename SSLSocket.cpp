@@ -49,52 +49,9 @@ namespace sf {
         }
 	}
 
-
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#ifdef _WIN32
-    ////////////////////////////////////////////////////////////
-    Socket::Status SSLSocket::getErrorStatus()
-    {
-        // clang-format off
-        switch (WSAGetLastError())
-        {
-            case WSAEWOULDBLOCK:  return Socket::Status::NotReady;
-            case WSAEALREADY:     return Socket::Status::NotReady;
-            case WSAECONNABORTED: return Socket::Status::Disconnected;
-            case WSAECONNRESET:   return Socket::Status::Disconnected;
-            case WSAETIMEDOUT:    return Socket::Status::Disconnected;
-            case WSAENETRESET:    return Socket::Status::Disconnected;
-            case WSAENOTCONN:     return Socket::Status::Disconnected;
-            case WSAEISCONN:      return Socket::Status::Done; // when connecting a non-blocking socket
-            default:              return Socket::Status::Error;
-        }
-        // clang-format on
-    }
-    ////////////////////////////////////////////////////////////
-#else
-    Socket::Status SSLSocket::getErrorStatus() {
-        if ((errno == EAGAIN) || (errno == EINPROGRESS))
-            return Socket::Status::NotReady;
-
-        // clang-format off
-        switch (errno)
-        {
-        case EWOULDBLOCK:  return Socket::Status::NotReady;
-        case ECONNABORTED: return Socket::Status::Disconnected;
-        case ECONNRESET:   return Socket::Status::Disconnected;
-        case ETIMEDOUT:    return Socket::Status::Disconnected;
-        case ENETRESET:    return Socket::Status::Disconnected;
-        case ENOTCONN:     return Socket::Status::Disconnected;
-        case EPIPE:        return Socket::Status::Disconnected;
-        default:           return Socket::Status::Error;
-        }
-    }
-#endif
-
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+    
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     Socket::Status SSLSocket::send(const void* data, std::size_t size, std::size_t& sent) {
@@ -139,6 +96,50 @@ namespace sf {
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#ifdef _WIN32
+    ////////////////////////////////////////////////////////////
+    Socket::Status SSLSocket::getErrorStatus()
+    {
+        // clang-format off
+        switch (WSAGetLastError())
+        {
+            case WSAEWOULDBLOCK:  return Socket::Status::NotReady;
+            case WSAEALREADY:     return Socket::Status::NotReady;
+            case WSAECONNABORTED: return Socket::Status::Disconnected;
+            case WSAECONNRESET:   return Socket::Status::Disconnected;
+            case WSAETIMEDOUT:    return Socket::Status::Disconnected;
+            case WSAENETRESET:    return Socket::Status::Disconnected;
+            case WSAENOTCONN:     return Socket::Status::Disconnected;
+            case WSAEISCONN:      return Socket::Status::Done; // when connecting a non-blocking socket
+            default:              return Socket::Status::Error;
+        }
+        // clang-format on
+    }
+    ////////////////////////////////////////////////////////////
+#else
+    Socket::Status SSLSocket::getErrorStatus() {
+        if ((errno == EAGAIN) || (errno == EINPROGRESS))
+            return Socket::Status::NotReady;
+
+        // clang-format off
+        switch (errno)
+        {
+        case EWOULDBLOCK:  return Socket::Status::NotReady;
+        case ECONNABORTED: return Socket::Status::Disconnected;
+        case ECONNRESET:   return Socket::Status::Disconnected;
+        case ETIMEDOUT:    return Socket::Status::Disconnected;
+        case ENETRESET:    return Socket::Status::Disconnected;
+        case ENOTCONN:     return Socket::Status::Disconnected;
+        case EPIPE:        return Socket::Status::Disconnected;
+        default:           return Socket::Status::Error;
+        }
+    }
+#endif
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -146,6 +147,15 @@ namespace sf {
         if (sockfd == -1)
             sockfd = socket(AF_INET, SOCK_STREAM, 0);
     }
+
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    bool SSLSocket::isBlocking(){
+        return m_blocking;
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     
     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -469,6 +479,7 @@ Socket::Status TcpSocket::connect(IpAddress remoteAddress, unsigned short remote
     bool SSLSocket::SetNonBlocking(bool non_blocking) {
 #ifdef _WIN32
         u_long mode = non_blocking ? 1 : 0;
+        
         if (ioctlsocket(sockfd, FIONBIO, &mode) != NO_ERROR) {
             std::cerr << "Error setting socket to " << (non_blocking ? "non-" : "") << "blocking mode" << std::endl;
             return false;
@@ -492,6 +503,7 @@ Socket::Status TcpSocket::connect(IpAddress remoteAddress, unsigned short remote
             }
         }
 #endif
+        m_blocking = !non_blocking;
         return true;
     }
 
